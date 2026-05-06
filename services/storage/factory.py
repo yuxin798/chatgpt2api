@@ -49,9 +49,12 @@ def create_storage_backend(data_dir: Path) -> StorageBackend:
         # Git 仓库存储
         repo_url = os.getenv("GIT_REPO_URL", "").strip()
         token = os.getenv("GIT_TOKEN", "").strip()
-        branch = os.getenv("GIT_BRANCH", "main").strip()
-        file_path = os.getenv("GIT_FILE_PATH", "accounts.json").strip()
-        auth_keys_file_path = os.getenv("GIT_AUTH_KEYS_FILE_PATH", "auth_keys.json").strip()
+        branch = os.getenv("GIT_BRANCH", "main").strip() or "main"
+        file_path = os.getenv("GIT_FILE_PATH", "accounts.json").strip() or "accounts.json"
+        auth_keys_file_path = os.getenv("GIT_AUTH_KEYS_FILE_PATH", "auth_keys.json").strip() or "auth_keys.json"
+        auth_username = os.getenv("GIT_AUTH_USERNAME", "x-access-token").strip() or "x-access-token"
+        commit_user_name = os.getenv("GIT_COMMIT_USER_NAME", "chatgpt2api").strip() or "chatgpt2api"
+        commit_user_email = os.getenv("GIT_COMMIT_USER_EMAIL", "chatgpt2api@users.noreply.github.com").strip() or "chatgpt2api@users.noreply.github.com"
         
         if not repo_url:
             raise ValueError(
@@ -69,6 +72,9 @@ def create_storage_backend(data_dir: Path) -> StorageBackend:
             file_path=file_path,
             auth_keys_file_path=auth_keys_file_path,
             local_cache_dir=cache_dir,
+            auth_username=auth_username,
+            commit_user_name=commit_user_name,
+            commit_user_email=commit_user_email,
         )
     
     else:

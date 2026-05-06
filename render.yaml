@@ -20,4 +20,20 @@ services:
       - key: MOEMAIL_DOMAIN
         sync: false
       - key: STORAGE_BACKEND
-        value: json
+        value: git
+      - key: GIT_REPO_URL
+        sync: false
+      - key: GIT_TOKEN
+        sync: false
+      - key: GIT_BRANCH
+        value: main
+      - key: GIT_FILE_PATH
+        value: accounts.json
+      - key: GIT_AUTH_KEYS_FILE_PATH
+        value: auth_keys.json
+      - key: GIT_AUTH_USERNAME
+        value: x-access-token
+      - key: GIT_COMMIT_USER_NAME
+        value: chatgpt2api
+      - key: GIT_COMMIT_USER_EMAIL
+        value: chatgpt2api@users.noreply.github.com
