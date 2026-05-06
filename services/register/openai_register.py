@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import random
 import secrets
 import string
@@ -37,11 +38,64 @@ config = {
     "threads": 3,
 }
 register_config_file = base_dir.parents[1] / "data" / "register.json"
+
+
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    try:
+        return max(minimum, int(str(os.getenv(name) or "").strip()))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
+    try:
+        return max(minimum, float(str(os.getenv(name) or "").strip()))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_list(name: str) -> list[str]:
+    raw = str(os.getenv(name) or "").strip()
+    if not raw:
+        return []
+    return [item.strip() for item in raw.replace("\n", ",").split(",") if item.strip()]
+
+
+def _env_mail_config() -> dict | None:
+    provider = str(os.getenv("REGISTER_MAIL_PROVIDER") or os.getenv("MAIL_PROVIDER") or "").strip().lower()
+    has_moemail_env = any(os.getenv(name) for name in ("MOEMAIL_API_KEY", "MOEMAIL_API_BASE", "MOEMAIL_DOMAIN", "MOEMAIL_DOMAINS"))
+    if provider not in {"", "moemail"} or not has_moemail_env:
+        return None
+    domains = _env_list("MOEMAIL_DOMAINS") or _env_list("MOEMAIL_DOMAIN")
+    return {
+        "request_timeout": _env_float("REGISTER_MAIL_REQUEST_TIMEOUT", config["mail"]["request_timeout"], 0.2),
+        "wait_timeout": _env_float("REGISTER_MAIL_WAIT_TIMEOUT", config["mail"]["wait_timeout"], 0.2),
+        "wait_interval": _env_float("REGISTER_MAIL_WAIT_INTERVAL", config["mail"]["wait_interval"], 0.2),
+        "providers": [
+            {
+                "enable": True,
+                "type": "moemail",
+                "api_base": str(os.getenv("MOEMAIL_API_BASE") or "https://moemail.app").strip().rstrip("/"),
+                "api_key": str(os.getenv("MOEMAIL_API_KEY") or "").strip(),
+                "domain": domains,
+                "expiry_time": _env_int("MOEMAIL_EXPIRY_TIME", 0, 0),
+            }
+        ],
+    }
+
+
 try:
     saved_config = json.loads(register_config_file.read_text(encoding="utf-8"))
     config.update({key: saved_config[key] for key in ("mail", "proxy", "total", "threads") if key in saved_config})
 except Exception:
     pass
+env_mail_config = _env_mail_config()
+if env_mail_config:
+    config["mail"] = env_mail_config
+if os.getenv("REGISTER_PROXY") is not None:
+    config["proxy"] = str(os.getenv("REGISTER_PROXY") or "").strip()
+config["total"] = _env_int("REGISTER_TOTAL", int(config.get("total") or 10), 1)
+config["threads"] = _env_int("REGISTER_THREADS", int(config.get("threads") or 3), 1)
 
 auth_base = "https://auth.openai.com"
 platform_base = "https://platform.openai.com"

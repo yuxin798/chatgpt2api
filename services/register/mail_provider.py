@@ -55,12 +55,23 @@ def _next_domain(domains: list[str]) -> str:
 def _parse_received_at(value: Any) -> datetime | None:
     if isinstance(value, (int, float)):
         try:
-            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+            timestamp = float(value)
+            while abs(timestamp) > 10_000_000_000:
+                timestamp /= 1000
+            return datetime.fromtimestamp(timestamp, tz=timezone.utc)
         except Exception:
             return None
     text = str(value or "").strip()
     if not text:
         return None
+    if re.fullmatch(r"\d+(?:\.\d+)?", text):
+        try:
+            timestamp = float(text)
+            while abs(timestamp) > 10_000_000_000:
+                timestamp /= 1000
+            return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        except Exception:
+            return None
     try:
         date = datetime.fromisoformat(text[:-1] + "+00:00" if text.endswith("Z") else text)
         return date if date.tzinfo else date.replace(tzinfo=timezone.utc)
@@ -71,6 +82,19 @@ def _parse_received_at(value: Any) -> datetime | None:
         return date if date.tzinfo else date.replace(tzinfo=timezone.utc)
     except Exception:
         return None
+
+
+def _received_at_from(*sources: dict[str, Any]) -> datetime | None:
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key in ("received_at", "receivedAt", "createdAt", "created_at", "date", "timestamp"):
+            if key not in source:
+                continue
+            received_at = _parse_received_at(source.get(key))
+            if received_at is not None:
+                return received_at
+    return None
 
 
 def _extract_content(data: dict[str, Any]) -> tuple[str, str]:
@@ -169,8 +193,7 @@ class BaseMailProvider:
     def wait_for(self, mailbox: dict[str, Any], on_message: Callable[[dict[str, Any]], ResultT | None]) -> ResultT | None:
         deadline = time.monotonic() + self.conf["wait_timeout"]
         while time.monotonic() < deadline:
-            message = self.fetch_latest_message(mailbox)
-            if message:
+            for message in self.fetch_messages(mailbox):
                 result = on_message(message)
                 if result is not None:
                     return result
@@ -195,6 +218,10 @@ class BaseMailProvider:
             return code
 
         return self.wait_for(mailbox, extract_unseen_code)
+
+    def fetch_messages(self, mailbox: dict[str, Any]) -> list[dict[str, Any]]:
+        message = self.fetch_latest_message(mailbox)
+        return [message] if message else []
 
     def close(self) -> None:
         pass
@@ -396,7 +423,7 @@ class MoEmailProvider(BaseMailProvider):
 
     def __init__(self, entry: dict, conf: dict):
         super().__init__(conf, str(entry.get("provider_ref") or ""))
-        self.api_base = str(entry["api_base"]).rstrip("/")
+        self.api_base = str(entry.get("api_base") or "https://moemail.app").rstrip("/")
         self.api_key = str(entry["api_key"]).strip()
         raw_domains = entry.get("domain") or []
         if isinstance(raw_domains, list):
@@ -424,6 +451,10 @@ class MoEmailProvider(BaseMailProvider):
         return {"provider": self.name, "provider_ref": self.provider_ref, "address": address, "email_id": email_id}
 
     def fetch_latest_message(self, mailbox: dict[str, Any]) -> dict[str, Any] | None:
+        messages = self.fetch_messages(mailbox)
+        return messages[0] if messages else None
+
+    def fetch_messages(self, mailbox: dict[str, Any]) -> list[dict[str, Any]]:
         email_id = str(mailbox.get("email_id") or "").strip()
         if not email_id:
             raise RuntimeError("MoEmail 缺少 email_id")
@@ -431,16 +462,38 @@ class MoEmailProvider(BaseMailProvider):
         items = data.get("messages") or []
         messages = [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
         if not messages:
-            return None
-        _, item = max(enumerate(messages), key=lambda pair: (((_parse_received_at(pair[1].get("createdAt") or pair[1].get("created_at") or pair[1].get("receivedAt") or pair[1].get("date") or pair[1].get("timestamp")) or datetime.fromtimestamp(0, tz=timezone.utc)).timestamp()), pair[0]))
-        message_id = str(item.get("id") or item.get("message_id") or item.get("_id") or "").strip()
-        detail = self._request("GET", f"/api/emails/{email_id}/{message_id}") if message_id else {"message": item}
-        message = detail.get("message") if isinstance(detail.get("message"), dict) else detail
-        text_content, html_content = _extract_content(message)
-        sender = message.get("from") or message.get("sender") or ""
-        if isinstance(sender, dict):
-            sender = sender.get("address") or sender.get("email") or sender.get("name") or ""
-        return {"provider": self.name, "mailbox": mailbox["address"], "message_id": message_id, "subject": str(message.get("subject") or item.get("subject") or ""), "sender": str(sender), "text_content": text_content, "html_content": html_content, "received_at": _parse_received_at(message.get("createdAt") or message.get("created_at") or message.get("receivedAt") or message.get("date") or message.get("timestamp") or item.get("createdAt") or item.get("created_at") or item.get("receivedAt") or item.get("date") or item.get("timestamp")), "raw": detail}
+            return []
+
+        indexed_messages = sorted(
+            enumerate(messages),
+            key=lambda pair: ((_received_at_from(pair[1]) or datetime.fromtimestamp(0, tz=timezone.utc)).timestamp(), pair[0]),
+            reverse=True,
+        )
+        normalized_messages: list[dict[str, Any]] = []
+        for _, item in indexed_messages:
+            message_id = str(item.get("id") or item.get("message_id") or item.get("_id") or "").strip()
+            detail = self._request("GET", f"/api/emails/{email_id}/{message_id}") if message_id else {"message": item}
+            message = detail.get("message") if isinstance(detail.get("message"), dict) else detail
+            if not isinstance(message, dict):
+                continue
+            text_content, html_content = _extract_content(message)
+            sender = message.get("from") or message.get("from_address") or message.get("sender") or item.get("from_address") or ""
+            if isinstance(sender, dict):
+                sender = sender.get("address") or sender.get("email") or sender.get("name") or ""
+            normalized_messages.append(
+                {
+                    "provider": self.name,
+                    "mailbox": mailbox["address"],
+                    "message_id": message_id,
+                    "subject": str(message.get("subject") or item.get("subject") or ""),
+                    "sender": str(sender),
+                    "text_content": text_content,
+                    "html_content": html_content,
+                    "received_at": _received_at_from(message, item),
+                    "raw": detail,
+                }
+            )
+        return normalized_messages
 
     def close(self) -> None:
         self.session.close()

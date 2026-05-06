@@ -318,3 +318,7 @@ curl http://localhost:8000/v1/responses \
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/chart?repos=basketikun/chatgpt2api&type=date&legend=top-left)](https://www.star-history.com/?repos=basketikun%2Fchatgpt2api&type=date&legend=top-left)
+
+## Render GitHub 部署
+
+仓库根目录提供了 `render.yaml`，可以在 Render 通过 GitHub Blueprint 直接部署，不需要使用预构建镜像。部署步骤和 MoeMail 环境变量见 [docs/render-github-deploy.md](./docs/render-github-deploy.md)。
