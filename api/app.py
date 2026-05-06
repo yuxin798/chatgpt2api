@@ -46,6 +46,10 @@ def create_app() -> FastAPI:
     if config.images_dir.exists():
         app.mount("/images", StaticFiles(directory=str(config.images_dir)), name="images")
 
+    @app.get("/healthz", include_in_schema=False)
+    async def healthz():
+        return {"ok": True, "version": app_version}
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_web(full_path: str):
         asset = resolve_web_asset(full_path)

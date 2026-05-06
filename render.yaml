@@ -5,7 +5,7 @@ services:
     plan: free
     buildCommand: bash scripts/render_build.sh
     startCommand: uv run --no-sync uvicorn main:app --host 0.0.0.0 --port $PORT --access-log
-    healthCheckPath: /
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_VERSION
         value: "22.22.0"

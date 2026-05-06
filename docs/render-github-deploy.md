@@ -19,6 +19,7 @@ Render 使用 Python native runtime：
 - Build Command: `bash scripts/render_build.sh`
 - Start Command: `uv run --no-sync uvicorn main:app --host 0.0.0.0 --port $PORT --access-log`
 - Python 版本由仓库根目录 `.python-version` 指定为 `3.13`
+- Health Check Path: `/healthz`
 
 构建脚本会执行：
 
@@ -26,6 +27,8 @@ Render 使用 Python native runtime：
 2. `npm --prefix web install`
 3. `npm --prefix web run build`
 4. 将 `web/out` 复制到后端会读取的 `web_dist`
+
+如果访问域名显示 `Not Found`，通常是前端静态文件没有复制到 `web_dist/index.html`。当前构建脚本会在构建后检查 `web/out/index.html` 和 `web_dist/index.html`，缺失时直接让 Render 构建失败，避免部署出只有后端没有界面的实例。
 
 ## MoeMail 环境变量
 
